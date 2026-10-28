@@ -7,9 +7,9 @@ from unittest.mock import Mock, patch
 import numpy as np
 from PyQt6.QtCore import QEvent, Qt
 from PyQt6.QtGui import QColor, QKeyEvent, QPixmap
-from PyQt6.QtWidgets import QMainWindow, QPushButton
+from PyQt6.QtWidgets import QDialog, QLabel, QMainWindow, QPushButton
 
-from core.ai import default_ai_project_state, get_ai_model_profile
+from core.ai import AI_REMOVAL_LABEL, default_ai_project_state, get_ai_model_profile
 from ui.main_window import AITabEventFilter, ImageClassifier
 
 
@@ -286,7 +286,7 @@ class AutoTaskHarness(ImageClassifier):
         event.accept()
 
 
-def test_full_auto_requires_copy_mode_and_twenty_samples(qtbot):
+def test_full_auto_requires_copy_mode_and_two_populated_classes(qtbot):
     window = AutoTaskHarness()
     qtbot.addWidget(window)
     assert window._ai_auto_preflight_problem() is None
@@ -294,8 +294,84 @@ def test_full_auto_requires_copy_mode_and_twenty_samples(qtbot):
     window.is_copy_mode = False
     assert "复制模式" in window._ai_auto_preflight_problem()
     window.is_copy_mode = True
-    window._ai_project_state["models"]["balanced"]["class_counts"]["站立"] = 19
-    assert "站立 19/20" in window._ai_auto_preflight_problem()
+    counts = window._ai_project_state["models"]["balanced"]["class_counts"]
+    counts["站立"] = 1
+    window.ordered_categories.append("零样本类别")
+    assert window._ai_auto_preflight_problem() is None
+    counts["站立"] = 0
+    assert "至少需要两个" in window._ai_auto_preflight_problem()
+
+
+def test_sample_warning_lists_only_short_categories_and_opt_in_removal(qtbot):
+    window = AutoTaskHarness()
+    qtbot.addWidget(window)
+    counts = window._ai_project_state["models"]["balanced"]["class_counts"]
+    counts["站立"] = 4
+    assert "站立 4/5 张" in window._ai_sample_shortage_warning(5)
+    assert "躺倒" not in window._ai_sample_shortage_warning(5)
+    assert "移除" not in window._ai_sample_shortage_warning(5)
+    window._ai_project_state["learn_removed_images"] = True
+    assert "移除 0/5 张" in window._ai_sample_shortage_warning(5)
+    counts["站立"] = 5
+    counts[AI_REMOVAL_LABEL] = 5
+    assert window._ai_sample_shortage_warning(5) == ""
+
+
+def test_assist_shortage_confirmation_requires_red_force_button(qtbot):
+    window = AutoTaskHarness()
+    qtbot.addWidget(window)
+    window._ai_project_state["models"]["balanced"]["class_counts"]["站立"] = 1
+
+    def force_start(box):
+        box.show()
+        confirm = next(button for button in box.buttons() if button.text() == "强行开启")
+        assert confirm.property("uiRole") == "danger"
+        assert box.defaultButton().text() == "取消"
+        confirm.click()
+
+    with patch("ui.main_window.ThemedMessageBox.exec", force_start):
+        assert window._confirm_ai_assist_start()
+    with patch("ui.main_window.ThemedMessageBox.exec", return_value=0):
+        assert not window._confirm_ai_assist_start()
+    window._ai_project_state["models"]["balanced"]["class_counts"]["站立"] = 5
+    with patch("ui.main_window.ThemedMessageBox.exec") as execute:
+        assert window._confirm_ai_assist_start()
+        execute.assert_not_called()
+
+
+def test_full_auto_shortage_uses_existing_risk_dialog(qtbot):
+    window = AutoTaskHarness()
+    qtbot.addWidget(window)
+    window._ai_project_state["models"]["balanced"]["class_counts"]["站立"] = 9
+
+    def force_start(dialog):
+        assert any("站立 9/20 张" in label.text() for label in dialog.findChildren(QLabel))
+        confirm = next(button for button in dialog.findChildren(QPushButton) if "强行开启" in button.text())
+        assert confirm.property("uiRole") == "danger"
+        return QDialog.DialogCode.Accepted
+
+    with patch("ui.main_window.QDialog.exec", force_start):
+        assert window._confirm_ai_auto_start() is False
+    with patch("ui.main_window.QDialog.exec", return_value=QDialog.DialogCode.Rejected):
+        assert window._confirm_ai_auto_start() is None
+
+
+def test_cancelled_sample_warning_leaves_assistance_disabled():
+    window = SimpleNamespace(
+        _is_active_ai_model_initialized=Mock(return_value=True),
+        _active_ai_resource_problem=Mock(return_value=None),
+        _ai_manager=SimpleNamespace(is_ready=True),
+        ai_prediction_mode="assist",
+        _ai_assist_active=False,
+        _confirm_ai_assist_start=Mock(return_value=False),
+        _ai_prediction_timer=Mock(),
+    )
+
+    ImageClassifier._handle_ai_tab_once(window)
+
+    assert not window._ai_assist_active
+    window._confirm_ai_assist_start.assert_called_once_with()
+    window._ai_prediction_timer.stop.assert_not_called()
 
 
 def test_full_auto_skips_uncertain_result_without_classifying(qtbot):

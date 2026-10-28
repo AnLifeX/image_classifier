@@ -134,7 +134,7 @@ def main() -> None:
             "uncertain_margin": 0.03,
             "removal_uncertain_margin": 0.05,
             "removal_min_similarity": 0.65,
-            "minimum_samples_per_class": 5,
+            "minimum_samples_per_class": 1,
         },
     }
     manifest_path = output_dir / "manifest.json"

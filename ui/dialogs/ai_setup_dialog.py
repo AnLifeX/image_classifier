@@ -255,7 +255,9 @@ class AIProjectSetupDialog(QDialog):
         source_layout.addLayout(model_store_row)
 
         self.source_hint = QLabel(
-            "冷启动阶段每个类别至少需要 5 张有效样本；建议达到每类 20 张后再依赖预测。"
+            "辅助标注建议每类至少 5 张有效样本，全自动建议每类至少 20 张。"
+            "不足时会弹窗提醒，可选择红色“强行开启”按钮继续。"
+            "至少两个类别有样本才能预测；零样本类别无法识别，少样本结果需人工核对。"
         )
         self.source_hint.setWordWrap(True)
         source_layout.addWidget(self.source_hint)

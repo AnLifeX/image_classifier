@@ -154,26 +154,41 @@ def test_insufficient_classes_returns_uncertain_reason(monkeypatch, tmp_path):
     assert "至少需要两个" in result.reason
 
 
-def test_cold_start_requires_five_samples_per_category(monkeypatch, tmp_path):
+def test_predict_includes_sparse_classes_despite_legacy_minimum(monkeypatch, tmp_path):
     monkeypatch.setitem(
         FakeExtractor.manifest["classifier"], "minimum_samples_per_class", 5
     )
     classifier = _make_classifier(monkeypatch, tmp_path)
     for index in range(5):
         _add_sample(classifier, f"a-{index}", "类别A", 0)
-    for index in range(4):
+    for index in range(1):
         _add_sample(classifier, f"b-{index}", "类别B", 1)
     classifier._rebuild_index()
 
     result = classifier.predict(
         1,
         "query",
-        np.zeros((2, 2, 3), dtype=np.uint8),
-        ("类别A", "类别B"),
+        np.ones((2, 2, 3), dtype=np.uint8),
+        ("类别A", "类别B", "零样本类别"),
+    )
+
+    assert result.suggestions[0].category == "类别B"
+    assert not result.uncertain
+    assert {item.category for item in result.suggestions} == {"类别A", "类别B"}
+
+
+def test_zero_sample_classes_do_not_count_towards_prediction_minimum(monkeypatch, tmp_path):
+    classifier = _make_classifier(monkeypatch, tmp_path)
+    _add_sample(classifier, "a", "类别A", 0)
+    classifier._rebuild_index()
+
+    result = classifier.predict(
+        1, "query", np.zeros((2, 2, 3), dtype=np.uint8), ("类别A", "类别B")
     )
 
     assert result.suggestions == ()
-    assert "类别B 4/5" in result.reason
+    assert result.uncertain
+    assert "至少需要两个" in result.reason
 
 
 def test_removal_is_only_returned_as_a_prediction_label(monkeypatch, tmp_path):

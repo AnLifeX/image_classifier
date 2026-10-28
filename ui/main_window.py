@@ -3121,6 +3121,8 @@ class ImageClassifier(QMainWindow):
                 self._start_ai_auto_task()
             return
 
+        if not self._ai_assist_active and not self._confirm_ai_assist_start():
+            return
         self._ai_assist_active = not self._ai_assist_active
         self._ai_prediction_timer.stop()
         self._update_ai_prediction_mode_button()
@@ -3139,6 +3141,42 @@ class ImageClassifier(QMainWindow):
                 self.category_panel.set_ai_status("AI 辅助 · 按 Tab 开启", "ready")
             toast_info(self, "AI 辅助已关闭")
 
+    def _ai_sample_shortage_warning(self, recommended: int) -> str:
+        model_key = self._ai_project_state.get("active_model", "balanced")
+        record = self._ai_project_state.get("models", {}).get(model_key, {})
+        counts = record.get("class_counts", {}) if isinstance(record, dict) else {}
+        labels = list(self.ordered_categories)
+        if self._ai_project_state.get("learn_removed_images", False):
+            labels.append(AI_REMOVAL_LABEL)
+        missing = [
+            f"{'移除' if label == AI_REMOVAL_LABEL else label} {int(counts.get(label, 0))}/{recommended} 张"
+            for label in labels
+            if int(counts.get(label, 0)) < recommended
+        ]
+        if not missing:
+            return ""
+        return (
+            f"样本数量不足，建议每个类别至少 {recommended} 张有效人工样本：\n"
+            + "\n".join(missing)
+            + "\n\n强行开启可能导致误判；零样本类别无法识别，至少两个类别有样本才能预测。"
+        )
+
+    def _confirm_ai_assist_start(self) -> bool:
+        warning = self._ai_sample_shortage_warning(5)
+        if not warning:
+            return True
+        box = ThemedMessageBox(self)
+        box.setWindowTitle("启动 AI 辅助标注")
+        box.setIcon(QMessageBox.Icon.Warning)
+        box.setText(warning)
+        confirm = box.addButton("强行开启", QMessageBox.ButtonRole.AcceptRole)
+        cancel = box.addButton("取消", QMessageBox.ButtonRole.RejectRole)
+        box.setDefaultButton(cancel)
+        box.setEscapeButton(cancel)
+        box.set_destructive(True)
+        box.exec()
+        return box.clickedButton() is confirm
+
     def _ai_auto_preflight_problem(self) -> Optional[str]:
         if not self.is_copy_mode:
             return "全自动分类只能在复制模式下使用"
@@ -3152,14 +3190,8 @@ class ImageClassifier(QMainWindow):
         required_labels = list(self.ordered_categories)
         if self._ai_project_state.get("learn_removed_images", False):
             required_labels.append(AI_REMOVAL_LABEL)
-        missing = [
-            f"{'移除' if label == AI_REMOVAL_LABEL else label} "
-            f"{int(counts.get(label, 0))}/20"
-            for label in required_labels
-            if int(counts.get(label, 0)) < 20
-        ]
-        if missing:
-            return "全自动要求每个参与预测的类别至少 20 张样本：" + "，".join(missing)
+        if sum(int(counts.get(label, 0)) > 0 for label in required_labels) < 2:
+            return "至少需要两个各有 1 张有效人工样本的类别；零样本类别不参与预测"
         return None
 
     def _confirm_ai_auto_start(self) -> Optional[bool]:
@@ -3172,9 +3204,12 @@ class ImageClassifier(QMainWindow):
         title = QLabel("⚠️ 全自动分类风险确认")
         title.setProperty("uiRole", "title")
         layout.addWidget(title)
+        shortage = self._ai_sample_shortage_warning(20)
         warning = QLabel(
-            "全自动会依据当前样本库直接复制图片到预测类别。预测不确定的图片会跳过，"
+            (shortage + "\n\n" if shortage else "")
+            + "全自动会依据当前样本库直接复制图片到预测类别。预测不确定的图片会跳过，"
             "任务期间本窗口的翻页、分类、模式切换和鼠标操作都会被锁定。\n\n"
+            "有有效样本的类别均参与预测；零样本类别无法识别，样本少的类别更容易误判。\n\n"
             "请确认样本质量和类别定义可靠；AI 结果仍可能出错。窗口最小化不会暂停任务。"
         )
         warning.setWordWrap(True)
@@ -3184,10 +3219,11 @@ class ImageClassifier(QMainWindow):
         layout.addWidget(reprocess)
         buttons = QHBoxLayout()
         cancel = QPushButton("取消")
-        confirm = QPushButton("我已了解风险，开始全自动")
+        confirm = QPushButton("我已了解风险，强行开启" if shortage else "我已了解风险，开始全自动")
         style_button(cancel, "secondary")
         style_button(confirm, "danger", min_width=200)
         cancel.clicked.connect(dialog.reject)
+        cancel.setDefault(True)
         confirm.clicked.connect(dialog.accept)
         buttons.addStretch()
         buttons.addWidget(cancel)

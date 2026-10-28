@@ -90,9 +90,6 @@ class IncrementalEmbeddingClassifier:
         self.removal_min_similarity = float(
             classifier_config.get("removal_min_similarity", 0.65)
         )
-        self.minimum_samples_per_class = int(
-            classifier_config.get("minimum_samples_per_class", 5)
-        )
         self.embedding_dimensions = int(self.extractor.manifest["output"]["dimensions"])
         self.color_dimensions = 512
         self.cache_path = Path(cache_path)
@@ -405,24 +402,10 @@ class IncrementalEmbeddingClassifier:
             allowed_categories = [
                 category
                 for category in categories
-                if counts.get(category, 0) >= self.minimum_samples_per_class
+                if counts.get(category, 0) > 0
             ]
-            missing_counts = [
-                (category, counts.get(category, 0))
-                for category in categories
-                if counts.get(category, 0) < self.minimum_samples_per_class
-            ]
-            if len(allowed_categories) < 2 or missing_counts:
+            if len(allowed_categories) < 2:
                 elapsed = (time.perf_counter() - started_at) * 1000
-                progress = "，".join(
-                    f"{category} {count}/{self.minimum_samples_per_class}"
-                    for category, count in missing_counts
-                )
-                reason = (
-                    f"AI 冷启动：请继续人工标注（{progress}）"
-                    if progress
-                    else "至少需要两个已完成人工样本的类别"
-                )
                 return PredictionResult(
                     request_id=request_id,
                     image_path=image_path,
@@ -430,7 +413,7 @@ class IncrementalEmbeddingClassifier:
                     uncertain=True,
                     provider=self.provider_label,
                     latency_ms=elapsed,
-                    reason=reason,
+                    reason="至少需要两个各有 1 张有效人工样本的类别；零样本类别不参与预测",
                 )
 
             normalized_color = (color.reshape(1, -1) - self.color_mean) / np.maximum(

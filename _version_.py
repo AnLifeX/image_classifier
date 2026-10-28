@@ -14,11 +14,11 @@ from product_channel import get_product_info
 # ================================
 
 # 主版本号 - 这是唯一需要手动修改的地方
-__version__ = "7.2.6"
+__version__ = "7.2.7"
 __version_info__ = tuple(map(int, __version__.split('.')))
 
 # 发布信息
-RELEASE_DATE = "2026-08-30"
+RELEASE_DATE = "2026-10-28"
 RELEASE_NAME = str(get_product_info()["application_name"])
 
 # ================================
@@ -26,6 +26,22 @@ RELEASE_NAME = str(get_product_info()["application_name"])
 # ================================
 
 VERSION_HISTORY = [
+    {
+        "version": "7.2.7",
+        "date": "2026-10-28",
+        "title": "AI 少样本启动确认",
+        "highlights": [
+            "辅助标注不足每类 5 张、全自动不足每类 20 张时提示样本数量",
+            "支持通过红色“强行开启”按钮确认后继续，不再被少样本类别阻塞",
+            "保留不确定结果跳过，零样本类别不参与预测"
+        ],
+        "details": [
+            "【AI 分类】",
+            "辅助启动弹窗列出样本不足的类别和数量，默认取消，可主动强行开启",
+            "全自动将少样本提示合并到原风险确认弹窗，保留红色确认按钮",
+            "至少两个类别各有 1 张有效样本才能预测，旧模型配置不会继续强制每类 5 张"
+        ]
+    },
     {
         "version": "7.2.6",
         "date": "2026-08-30",
